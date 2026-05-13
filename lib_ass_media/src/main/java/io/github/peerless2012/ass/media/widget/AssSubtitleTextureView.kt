@@ -211,8 +211,7 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
             uniform vec4 u_Color;
             void main() {
                 float alpha = texture2D(u_Texture, v_TexCoord).a;
-                gl_FragColor = u_Color * alpha;
-
+                gl_FragColor = vec4(u_Color.rgb, u_Color.a * alpha);
             }
         """.trimIndent()
 
@@ -272,9 +271,9 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
 
             // enable blend
-            GLES20.glEnable(GLES20.GL_BLEND);
+            GLES20.glEnable(GLES20.GL_BLEND)
             // set blend mode
-            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+            GLES20.glBlendFuncSeparate(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA, GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         }
 
         override fun onSurfaceChanged(width: Int, height: Int) {
