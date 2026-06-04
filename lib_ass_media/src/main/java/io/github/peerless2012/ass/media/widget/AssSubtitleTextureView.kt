@@ -193,6 +193,8 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
 
     private class AssRender(private val assHandler: AssHandler) : Renderer {
 
+        private val TAG = "AssRender"
+
         private val vertexShaderCode = """
             attribute vec4 a_Position;
             attribute vec2 a_TexCoord;
@@ -239,7 +241,21 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
 
         private var texCoordBufferId = 0
 
+        // Whether GL_EXT_unpack_subimage is supported.
+        // When supported, native createTexture can use GL_UNPACK_ROW_LENGTH_EXT directly.
+        // Otherwise, fallback to bitmap upload on the Kotlin side.
+        private var useNativeTexture = false
+
         override fun onSurfaceCreated() {
+            // Detect GL_EXT_unpack_subimage support.
+            // Native createTexture relies on this extension for stride-aware texture upload.
+            // On GPUs that don't support it (e.g. Mali-470), fallback to bitmap mode.
+            val extensions = GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: ""
+            useNativeTexture = "GL_EXT_unpack_subimage" in extensions
+            if (!useNativeTexture) {
+                Log.w(TAG, "GL_EXT_unpack_subimage not supported, fallback to bitmap texture upload")
+            }
+
             glProgram = GlProgram(vertexShaderCode, fragmentShaderCode)
             GlUtil.checkGlError()
 
@@ -283,7 +299,8 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
         }
 
         override fun onDrawFrame(timestampNanos: Long): Boolean {
-            val assFrame = assHandler.render?.renderFrame(timestampNanos / 1000, AssTexType.TEXTURE)
+            val texType = if (useNativeTexture) AssTexType.TEXTURE else AssTexType.BITMAP_ALPHA
+            val assFrame = assHandler.render?.renderFrame(timestampNanos / 1000, texType)
 
             // if content not change, just return the tex
             if (assFrame != null && assFrame.changed == 0) {
@@ -295,7 +312,7 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
                 return false
             }
 
-            // clear tex content
+            // clear surface content
             GlUtil.clearFocusedBuffers()
             surfaceDirty = false
 
@@ -314,13 +331,20 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
                 GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
 
                 frames.forEach { frame ->
-                    if (frame.tex > 0 ) {
+                    // Resolve texture id based on the render mode
+                    val texId = if (useNativeTexture) {
+                        frame.tex
+                    } else {
+                        frame.bitmap?.let { GlUtil.createTexture(it) } ?: 0
+                    }
+
+                    if (texId > 0) {
                         val r = frame.color shr 24 and 0xFF
                         val g = frame.color shr 16 and 0xFF
                         val b = frame.color shr 8 and 0xFF
                         val a = 0xFF - frame.color and 0xFF
 
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frame.tex)
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
                         GlUtil.checkGlError()
 
                         GLES20.glViewport(frame.x, surfaceSize.height - frame.y - frame.h, frame.w, frame.h)
@@ -330,7 +354,7 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
                         GlUtil.checkGlError()
 
                         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
-                        GlUtil.deleteTexture(frame.tex)
+                        GlUtil.deleteTexture(texId)
                     }
                 }
             }
