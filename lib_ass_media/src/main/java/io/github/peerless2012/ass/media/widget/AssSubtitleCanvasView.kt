@@ -63,6 +63,13 @@ class AssSubtitleCanvasView : View, AssSubtitleRender {
         this.assHandler = assHandler
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w > 0 && h > 0) {
+            assHandler.render?.setFrameSize(w, h)
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         assHandler.render?.let {
