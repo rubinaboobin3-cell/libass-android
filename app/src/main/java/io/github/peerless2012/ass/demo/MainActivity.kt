@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableList
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.type.AssRenderType
 import androidx.core.net.toUri
+import io.github.peerless2012.ass.media.AssHandlerConfig
 
 class MainActivity : AppCompatActivity() {
 
@@ -51,6 +52,7 @@ class MainActivity : AppCompatActivity() {
             .buildWithAssSupport(
                 this,
                 AssRenderType.OVERLAY_OPEN_GL,
+                AssHandlerConfig(maxRenderPixels = 720*480),
                 playerView.subtitleView
             )
         playerView.player = player

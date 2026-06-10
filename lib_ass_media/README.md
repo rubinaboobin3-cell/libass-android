@@ -102,3 +102,61 @@ And the `libass` render and `OpenGL` draw on another separate thread, it will no
          .setSubtitleConfigurations(ImmutableList.of(enConfig, jpConfig, zhConfig))
    ```
    NOTE: Make sure the `id` is set and different from media self track size. Recommend bigger than 128 or more bigger.
+
+## Configuration
+
+`AssHandlerConfig` provides options to tune subtitle rendering behavior. Pass it to `buildWithAssSupport`:
+
+```kotlin
+player = ExoPlayer.Builder(this)
+    .buildWithAssSupport(
+        context = this,
+        renderType = AssRenderType.OVERLAY_OPEN_GL,
+        config = AssHandlerConfig(
+            maxRenderPixels = 1920 * 1080
+        )
+    )
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+| :----: | :----: | :---- |
+| `glyphSize` | 10000 | Maximum number of glyph cache entries in libass |
+| `cacheSize` | 128 | Maximum bitmap cache size in MB for libass |
+| `maxRenderPixels` | 0 | Maximum pixel count for subtitle rendering (0 = no limit) |
+
+### Render Downscaling (`maxRenderPixels`)
+
+On high-resolution devices (e.g., 4K TVs), rendering subtitles at full resolution can be very CPU and memory intensive, especially for complex ASS animations. `maxRenderPixels` limits the resolution at which libass renders subtitles.
+
+**How it works:**
+
+```
+Target frame size: 3840 x 2160 = 8,294,400 pixels
+maxRenderPixels:   1920 x 1080 = 2,073,600
+
+scale = sqrt(2,073,600 / 8,294,400) = 0.5
+Actual render size: 1920 x 1080
+```
+
+1. libass renders subtitle bitmaps at the downscaled size (e.g., 1080p)
+2. The rendered subtitle images are then scaled up to the actual surface/video size during display
+3. GPU hardware handles the upscaling, which is nearly free
+
+**Recommended values:**
+
+| Value | Equivalent | Use case |
+| :---- | :---- | :---- |
+| `0` | No limit | Default, render at full resolution |
+| `2_073_600` | 1080p | 4K devices with normal CPU |
+| `3_686_400` | 1440p | 4K devices with strong CPU |
+| `921_600` | 720p | Low-end devices or complex ASS animations |
+
+**Mode-specific behavior:**
+
+- **OVERLAY_OPEN_GL**: Renders at reduced size, scales `glViewport` coordinates to surface size
+- **OVERLAY_CANVAS**: Renders at reduced size, uses `drawBitmap` with scaled `RectF`
+- **EFFECTS_OPEN_GL**: Creates smaller FBO, uses `getVertexTransformation` to scale up in the OverlayEffect pipeline
+- **EFFECTS_CANVAS**: Renders at reduced size, scales canvas draw coordinates
+- **CUES**: Not affected (pre-renders all subtitles at parse time)

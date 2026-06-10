@@ -1,6 +1,7 @@
 package io.github.peerless2012.ass.media.render
 
 import android.opengl.GLES20
+import android.opengl.Matrix
 import androidx.annotation.OptIn
 import androidx.media3.common.util.GlProgram
 import androidx.media3.common.util.GlUtil
@@ -67,6 +68,10 @@ class AssTexOverlay(private val handler: AssHandler, private val render: AssRend
     private var texDirty = true
 
     private var texSize = Size.ZERO
+
+    private var renderSize = Size.ZERO
+
+    private var vertexTransformMatrix = GlUtil.create4x4IdentityMatrix()
 
     private var fboId = 0
 
@@ -147,7 +152,7 @@ class AssTexOverlay(private val handler: AssHandler, private val render: AssRend
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, txt)
                     GlUtil.checkGlError()
 
-                    GLES20.glViewport(frame.x, texSize.height - bitmap.height - frame.y, bitmap.width, bitmap.height)
+                    GLES20.glViewport(frame.x, renderSize.height - bitmap.height - frame.y, bitmap.width, bitmap.height)
                     GLES20.glUniform4f(glProgram.getUniformLocation("u_Color"), r / 255f, g / 255f, b / 255f, a / 255f)
 
                     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
@@ -173,13 +178,30 @@ class AssTexOverlay(private val handler: AssHandler, private val render: AssRend
         return texSize
     }
 
+    override fun getVertexTransformation(presentationTimeUs: Long): FloatArray {
+        return vertexTransformMatrix
+    }
+
     override fun configure(videoSize: Size) {
         super.configure(videoSize)
-        this.texSize = videoSize
+        renderSize = handler.computeRenderSize(videoSize.width, videoSize.height)
+        this.texSize = renderSize
         executor = AssExecutor(render)
-        render.setFrameSize(videoSize.width, videoSize.height)
-        texId = GlUtil.createTexture(videoSize.width, videoSize.height, false)
+        render.setFrameSize(renderSize.width, renderSize.height)
+        texId = GlUtil.createTexture(renderSize.width, renderSize.height, false)
         fboId = GlUtil.createFboForTexture(texId)
+
+        // Compute vertex transform to scale the overlay texture up to cover the full video frame
+        if (renderSize.width != videoSize.width || renderSize.height != videoSize.height) {
+            vertexTransformMatrix = GlUtil.create4x4IdentityMatrix()
+            Matrix.scaleM(
+                vertexTransformMatrix, 0,
+                videoSize.width.toFloat() / renderSize.width,
+                videoSize.height.toFloat() / renderSize.height,
+                1f
+            )
+        }
+
         glProgram = GlProgram(vertexShaderCode, fragmentShaderCode)
         GlUtil.checkGlError()
 

@@ -169,9 +169,11 @@ class AssHandler(
         val render = requireNotNull(render)
         render.setStorageSize(videoSize.width, videoSize.height)
         if (renderType == AssRenderType.OVERLAY_CANVAS || renderType == AssRenderType.OVERLAY_OPEN_GL) {
-            render.setFrameSize(surfaceSize.width, surfaceSize.height)
+            val renderSize = computeRenderSize(surfaceSize.width, surfaceSize.height)
+            render.setFrameSize(renderSize.width, renderSize.height)
         } else {
-            render.setFrameSize(videoSize.width, videoSize.height)
+            val renderSize = computeRenderSize(videoSize.width, videoSize.height)
+            render.setFrameSize(renderSize.width, renderSize.height)
         }
         render.setTrack(track)
 
@@ -193,7 +195,11 @@ class AssHandler(
         if (surfaceSize.width == width && surfaceSize.height == height) return
         surfaceSize = Size(width, height)
         if ((renderType == AssRenderType.OVERLAY_CANVAS || renderType == AssRenderType.OVERLAY_OPEN_GL) && surfaceSize.isValid) {
-            render?.setFrameSize(surfaceSize.width, surfaceSize.height)
+            val renderSize = computeRenderSize(width, height)
+            if (renderSize.width != width || renderSize.height != height) {
+                Log.i("AssHandler", "Downscaling render: ${width}x${height} -> ${renderSize.width}x${renderSize.height} (maxPixels=${config.maxRenderPixels})")
+            }
+            render?.setFrameSize(renderSize.width, renderSize.height)
         }
     }
 
@@ -277,15 +283,18 @@ class AssHandler(
                 render.setStorageSize(videoSize.width, videoSize.height)
             }
             if (videoSize.isValid) {
-                render.setFrameSize(videoSize.width, videoSize.height)
+                val renderSize = computeRenderSize(videoSize.width, videoSize.height)
+                render.setFrameSize(renderSize.width, renderSize.height)
             }
             if (renderType == AssRenderType.OVERLAY_CANVAS || renderType == AssRenderType.OVERLAY_OPEN_GL) {
                 if (surfaceSize.isValid) {
-                    render.setFrameSize(surfaceSize.width, surfaceSize.height)
+                    val renderSize = computeRenderSize(surfaceSize.width, surfaceSize.height)
+                    render.setFrameSize(renderSize.width, renderSize.height)
                 }
             } else {
                 if (videoSize.isValid) {
-                    render.setFrameSize(videoSize.width, videoSize.height)
+                    val renderSize = computeRenderSize(videoSize.width, videoSize.height)
+                    render.setFrameSize(renderSize.width, renderSize.height)
                 }
             }
             Log.i("AssHandler", "Ass cacheSize: ${config.cacheSize}MB")
@@ -367,4 +376,26 @@ class AssHandler(
      */
     private val Size.isValid
         get() = width > 0 && height > 0
+
+    /**
+     * Computes the actual render size, downscaling proportionally if the frame
+     * exceeds [AssHandlerConfig.maxRenderPixels].
+     *
+     * The result is aligned to even numbers for consistent libass internal layout.
+     *
+     * @param width  Target frame width (surface or video size)
+     * @param height Target frame height
+     * @return The (possibly downscaled) render size
+     */
+    fun computeRenderSize(width: Int, height: Int): Size {
+        val max = config.maxRenderPixels
+        if (max <= 0) return Size(width, height)
+        val pixels = width.toLong() * height
+        if (pixels <= max) return Size(width, height)
+        val scale = Math.sqrt(max.toDouble() / pixels).toFloat()
+        // Align to even numbers for libass internal layout
+        val w = ((width * scale).toInt() and 0x7FFFFFFE).coerceAtLeast(2)
+        val h = ((height * scale).toInt() and 0x7FFFFFFE).coerceAtLeast(2)
+        return Size(w, h)
+    }
 }

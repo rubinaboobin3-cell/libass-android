@@ -247,6 +247,8 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
 
         private var surfaceSize = Size.ZERO
 
+        private var renderSize = Size.ZERO
+
         private lateinit var glProgram: GlProgram
 
         private var vertexBufferId = 0
@@ -306,7 +308,8 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
 
         override fun onSurfaceChanged(width: Int, height: Int) {
             surfaceSize = Size(width, height)
-            assHandler.render?.setFrameSize(width, height)
+            renderSize = assHandler.computeRenderSize(width, height)
+            assHandler.render?.setFrameSize(renderSize.width, renderSize.height)
             GLES20.glViewport(0, 0, width, height)
             forceNextRender = true
         }
@@ -362,7 +365,14 @@ class AssSubtitleTextureView : TextureView, AssSubtitleRender, TextureView.Surfa
                         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
                         GlUtil.checkGlError()
 
-                        GLES20.glViewport(frame.x, surfaceSize.height - frame.y - frame.h, frame.w, frame.h)
+                        // Scale coordinates from render size to surface size
+                        val scaleX = surfaceSize.width.toFloat() / renderSize.width
+                        val scaleY = surfaceSize.height.toFloat() / renderSize.height
+                        val scaledX = (frame.x * scaleX).toInt()
+                        val scaledY = (frame.y * scaleY).toInt()
+                        val scaledW = (frame.w * scaleX).toInt()
+                        val scaledH = (frame.h * scaleY).toInt()
+                        GLES20.glViewport(scaledX, surfaceSize.height - scaledY - scaledH, scaledW, scaledH)
                         GLES20.glUniform4f(glProgram.getUniformLocation("u_Color"), r / 255f, g / 255f, b / 255f, a / 255f)
 
                         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)

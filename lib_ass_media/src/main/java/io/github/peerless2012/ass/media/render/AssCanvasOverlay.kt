@@ -26,10 +26,16 @@ class AssCanvasOverlay(private val handler: AssHandler, private val render: AssR
 
     private var texDirty = true
 
+    private var renderSize = Size.ZERO
+
+    private var videoSize = Size.ZERO
+
     override fun configure(videoSize: Size) {
         super.configure(videoSize)
+        this.videoSize = videoSize
+        renderSize = handler.computeRenderSize(videoSize.width, videoSize.height)
         executor = AssExecutor(render)
-        render.setFrameSize(videoSize.width, videoSize.height)
+        render.setFrameSize(renderSize.width, renderSize.height)
     }
 
     override fun onDraw(canvas: Canvas, presentationTimeUs: Long) {
@@ -53,6 +59,8 @@ class AssCanvasOverlay(private val handler: AssHandler, private val render: AssR
 
         assFrame?.images?.let { frames ->
             texDirty = true
+            val scaleX = videoSize.width.toFloat() / renderSize.width
+            val scaleY = videoSize.height.toFloat() / renderSize.height
             frames.forEach { frame ->
                 frame.bitmap?.let { bitmap ->
                     val r = frame.color shr 24 and 0xFF
@@ -62,7 +70,17 @@ class AssCanvasOverlay(private val handler: AssHandler, private val render: AssR
                     val color = (a shl 24) or (r shl 16) or (g shl 8) or b
 
                     paint.color = color
-                    canvas.drawBitmap(bitmap, frame.x.toFloat(), frame.y.toFloat(), paint)
+                    if (scaleX == 1f && scaleY == 1f) {
+                        canvas.drawBitmap(bitmap, frame.x.toFloat(), frame.y.toFloat(), paint)
+                    } else {
+                        val dst = android.graphics.RectF(
+                            frame.x * scaleX,
+                            frame.y * scaleY,
+                            (frame.x + bitmap.width) * scaleX,
+                            (frame.y + bitmap.height) * scaleY
+                        )
+                        canvas.drawBitmap(bitmap, null, dst, paint)
+                    }
                 }
             }
         }
