@@ -8,7 +8,10 @@ import androidx.media3.common.util.Util
 import androidx.media3.extractor.TrackOutput
 import io.github.peerless2012.ass.media.AssHandler
 import io.github.peerless2012.ass.media.extractor.AssMatroskaExtractor
+import java.io.ByteArrayOutputStream
 import java.util.regex.Pattern
+import java.util.zip.DataFormatException
+import java.util.zip.Inflater
 
 /**
  * This class is only used by the overlay renderer. It's needed to get the start time of the subtitles.
@@ -46,14 +49,18 @@ class AssTrackOutput(
 
             val rawDuration = sample.data.decodeToString(endIndex, lineIndex - 1)
             val durationUs = parseTimecodeUs(rawDuration)
+            val dialogue = sample.data.dialoguePayload(
+                offset = lineIndex,
+                limit = sample.limit()
+            )
 
             assHandler.readTrackDialogue(
                 trackId = trackId,
                 start = timeUs / 1000,
                 duration = durationUs / 1000,
-                data = sample.data,
-                offset = lineIndex,
-                length = sample.limit() - lineIndex
+                data = dialogue,
+                offset = 0,
+                length = dialogue.size
             )
         }
         delegate.sampleMetadata(timeUs, flags, size, offset, cryptoData)
@@ -83,6 +90,48 @@ class AssTrackOutput(
         return 0
     }
 
+    private fun ByteArray.dialoguePayload(offset: Int, limit: Int): ByteArray {
+        if (offset >= size) return EMPTY_BYTE_ARRAY
+        val boundedLimit = limit.coerceIn(offset, size)
+        val rawEnd = if (looksLikeZlib(offset, size)) size else boundedLimit
+        val rawPayload = copyOfRange(offset, rawEnd)
+        return maybeInflate(rawPayload)
+    }
+
+    private fun ByteArray.looksLikeZlib(offset: Int, limit: Int): Boolean {
+        if (limit - offset < 2) return false
+        val cmf = this[offset].toInt() and 0xFF
+        val flg = this[offset + 1].toInt() and 0xFF
+        return cmf and 0x0F == 8 && ((cmf shl 8) + flg) % 31 == 0
+    }
+
+    private fun maybeInflate(data: ByteArray): ByteArray {
+        if (!data.looksLikeZlib(offset = 0, limit = data.size)) return data
+
+        val inflater = Inflater()
+        return try {
+            inflater.setInput(data)
+            val output = ByteArrayOutputStream(data.size * 4)
+            val buffer = ByteArray(INFLATE_BUFFER_SIZE)
+            while (!inflater.finished()) {
+                val count = inflater.inflate(buffer)
+                if (count > 0) {
+                    output.write(buffer, 0, count)
+                } else if (inflater.needsInput() || inflater.needsDictionary()) {
+                    break
+                } else {
+                    break
+                }
+            }
+            val inflated = output.toByteArray()
+            if (inflater.finished() && inflated.isNotEmpty()) inflated else data
+        } catch (_: DataFormatException) {
+            data
+        } finally {
+            inflater.end()
+        }
+    }
+
     private val Long.isValidTs
         get() = this != C.TIME_UNSET
 
@@ -91,5 +140,7 @@ class AssTrackOutput(
             Pattern.compile("""(?:(\d+):)?(\d+):(\d+)[:.](\d+)""")
 
         const val COMMA = ','.code.toByte()
+        const val INFLATE_BUFFER_SIZE = 4096
+        val EMPTY_BYTE_ARRAY = ByteArray(0)
     }
 }
